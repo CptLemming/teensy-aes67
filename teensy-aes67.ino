@@ -8,10 +8,10 @@
 #include <QNEthernet.h>
 #include <SPI.h>
 #include <SD.h>
-#include <StreamUtils.h>
 #include <TeensyID.h>
 #include <Wire.h>
 
+#include "input_i2s2_16bit.h"
 #include "audioBoard.h"
 #include "deviceModel.h"
 #include "websocket.hpp"
@@ -23,25 +23,31 @@
 
 // ====== AUDIO
 // AudioInputUSB            usb1;
-Plotter                  plotter(8);
-AudioPlayQueue           audioReceiverQueue;
-AudioRecordQueue         audioTransmitterQueue;
-AudioOutputI2S           i2s2;
+Plotter                   plotter(8);
+AudioPlayQueue            audioReceiverQueue;
+AudioRecordQueue          audioTransmitterQueue;
+AudioOutputI2S            i2s;
+// Bluetooth audio receiver via esp32
+AudioInputI2S2_16bitslave i2sSlaveInput;
 // AudioOutputUSB           usb2;
-AudioSynthWaveform       waveform1;
+AudioSynthWaveform        waveform1;
+AudioConnection           patchCord1(i2sSlaveInput, 0, plotter, 0);
+AudioConnection           patchCord2(i2sSlaveInput, 1, plotter, 1);
+AudioConnection           patchCord3(i2sSlaveInput, 0, i2s, 0);
+AudioConnection           patchCord4(i2sSlaveInput, 1, i2s, 1);
 // Receive network audio, play to USB & headphone jack
 // AudioConnection          patchCord1(audioReceiverQueue, 0, plotter, 0);
 // AudioConnection          patchCord2(audioReceiverQueue, 0, plotter, 1);
-AudioConnection          patchCord3(audioReceiverQueue, 0, i2s2, 0);
-AudioConnection          patchCord4(audioReceiverQueue, 0, i2s2, 1);
+// AudioConnection          patchCord3(audioReceiverQueue, 0, i2s, 0);
+// AudioConnection          patchCord4(audioReceiverQueue, 0, i2s, 1);
 // AudioConnection          patchCord5(audioReceiverQueue, 0, usb2, 0);
 // AudioConnection          patchCord6(audioReceiverQueue, 0, usb2, 1);
 // Receive USB audio, play to network & headphone jack
 // AudioConnection          patchCord1(usb1, 0, plotter, 0);
 // AudioConnection          patchCord2(usb1, 1, plotter, 1);
 // AudioConnection          patchCord3(usb1, 0, audioTransmitterQueue, 0);
-// AudioConnection          patchCord4(usb1, 0, i2s2, 0);
-// AudioConnection          patchCord5(usb1, 1, i2s2, 1);
+// AudioConnection          patchCord4(usb1, 0, i2s, 0);
+// AudioConnection          patchCord5(usb1, 1, i2s, 1);
 AudioControlSGTL5000     sgtl5000_1;
 
 // ====== ETHERNET
@@ -73,7 +79,7 @@ void setup() {
   sgtl5000_1.enable();
   sgtl5000_1.volume(0.5);
   audioReceiverQueue.setBehaviour(AudioPlayQueue::NON_STALLING);
-  audioReceiverQueue.setMaxBuffers(32);
+  audioReceiverQueue.setMaxBuffers(8);
   audioTransmitterQueue.begin();
   audioBoard.start();
 
@@ -133,7 +139,7 @@ void setup() {
   }
 
   // [DEBUG] Setup serial plotter
-  // plotter.activate(true);
+  plotter.activate(true);
 }
 
 // TODO Can this be inlined in the timer call
