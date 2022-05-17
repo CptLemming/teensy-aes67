@@ -32,7 +32,7 @@ void setup() {
 
   a2d_sink.set_i2s_config(i2s_config);
   a2d_sink.set_pin_config(pin_config);
-  a2d_sink.start("MyMusic");
+  a2d_sink.start("TeensyAudio");
   Serial.begin(115200);
 }
 
