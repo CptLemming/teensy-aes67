@@ -11,6 +11,9 @@ Features:
 
 Todo:
 
+- Audio streams are hard coded, should be dynamic
+- Send Bluetooth AVRC data to Teensy to use in labels
+- Send device name from Teensy to ESP32 to customise broadcast name
 - Working PTPv2
 - NMOS control
 
@@ -22,3 +25,12 @@ Bill of materials:
 - [Adafruit Neotrellis](https://www.adafruit.com/product/4352)
 - [ESP32 Pico D4](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/hw-reference/esp32/get-started-pico-kit.html)
 - [POE splitter](https://www.digikey.co.uk/en/products/detail/adafruit-industries-llc/4552/13561753)
+
+Resources and projects used to get the project this far:
+
+- https://github.com/JayShoe/esp32_T4_bt_music_receiver
+- https://github.com/philhartung/aes67-sender
+- https://github.com/bondagit/aes67-linux-daemon
+- https://hartung.io/
+- https://www.researchgate.net/figure/Header-fields-for-RTP-UDP-IP-packets-Version-4-with-the-appropriate-dynamics_fig2_226190399
+- https://github.com/ssilverman/QNEthernet
