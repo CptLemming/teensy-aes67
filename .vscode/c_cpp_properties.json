@@ -1,0 +1,51 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/cores/teensy4",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/Audio",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/Audio/utility",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/SD/src",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/SdFat/src",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/SerialFlash",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/SPI",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/EEPROM",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/Wire",
+                "C:/Program Files (x86)/Arduino/hardware/teensy/avr/libraries/Wire/utility",
+                "C:/Users/Ashley/Documents/Arduino/libraries/ArduinoJson/src",
+                // Forked lib https://github.com/CptLemming/QNEthernet
+                "C:/Users/Ashley/Documents/Arduino/libraries/QNEthernet/src",
+                "C:/Users/Ashley/Documents/Arduino/libraries/StreamUtils/src",
+                "C:/Users/Ashley/Documents/Arduino/libraries/WebSockets2_Generic/src",
+                "C:/Users/Ashley/Documents/Arduino/libraries/TeensyID",
+                "C:/Users/Ashley/Documents/Arduino/libraries/Adafruit_seesaw_Library",
+                "C:/Users/Ashley/Documents/Arduino/libraries/Adafruit_BusIO"
+            ],
+            "defines": [
+                "PLATFORMIO=50205",
+                "__IMXRT1062__",
+                "ARDUINO_TEENSY41",
+                "USB_SERIAL",
+                "ARDUINO=10805",
+                "TEENSYDUINO=156",
+                "CORE_TEENSY",
+                "F_CPU=600000000",
+                "LAYOUT_US_ENGLISH",
+                "AUDIO_INTERFACE",
+                ""
+            ],
+            "cppStandard": "c++14",
+            "compilerPath": "C:/Program Files (x86)/Arduino/hardware/tools/arm/bin/arm-none-eabi-gcc.exe",
+            "compilerArgs": [
+                "-mthumb",
+                "-mcpu=cortex-m7",
+                "-mfloat-abi=hard",
+                "-mfpu=fpv5-d16",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}
