@@ -2,6 +2,7 @@
 #define USE_QN_ETHERNET               true
 #define _WEBSOCKETS_LOGLEVEL_         1
 
+#include "USBHost_t36.h"
 #include <Adafruit_NeoTrellis.h>
 #include <ArduinoJson.h>
 #include <Audio.h>
@@ -20,6 +21,7 @@
 #define SDCARD_CS_PIN    BUILTIN_SDCARD
 #define SDCARD_MOSI_PIN  11
 #define SDCARD_SCK_PIN   13
+#define USBBAUD          115200
 
 // ====== AUDIO
 // AudioInputUSB            usb1;
@@ -59,6 +61,7 @@ IPAddress gateway{192, 168, 30, 1};
 byte mac[6];
 qindesign::network::EthernetUDP udp;
 websockets2_generic::WebsocketsServer socketServer;
+USBHost esp32Serial;
 
 // ====== CLASSES
 IntervalTimer rtpOutputTimer;
@@ -72,6 +75,9 @@ void setup() {
 
   // Set the MAC address.
   teensyMAC(mac);
+
+  // Start USB host (power ESP32)
+  esp32Serial.begin();
 
   // Setup audio board
   Serial.println("Setup audio");
@@ -152,6 +158,7 @@ void loop() {
   audioBoard.readPackets();
   audioBoard.readAudio();
   trellis.read();
+  esp32Serial.Task();
 }
 
 TrellisCallback onButtonAction(keyEvent evt){

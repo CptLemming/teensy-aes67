@@ -21,7 +21,8 @@
                 "C:/Users/Ashley/Documents/Arduino/libraries/WebSockets2_Generic/src",
                 "C:/Users/Ashley/Documents/Arduino/libraries/TeensyID",
                 "C:/Users/Ashley/Documents/Arduino/libraries/Adafruit_seesaw_Library",
-                "C:/Users/Ashley/Documents/Arduino/libraries/Adafruit_BusIO"
+                "C:/Users/Ashley/Documents/Arduino/libraries/Adafruit_BusIO",
+                "C:/Users/Ashley/Documents/Arduino/libraries/USBHost_t36"
             ],
             "defines": [
                 "PLATFORMIO=50205",
