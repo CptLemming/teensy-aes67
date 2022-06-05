@@ -2,7 +2,10 @@
 #define USE_QN_ETHERNET               true
 #define _WEBSOCKETS_LOGLEVEL_         1
 
+#include "RTClib.h"
 #include "USBHost_t36.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoTrellis.h>
 #include <ArduinoJson.h>
 #include <Audio.h>
@@ -22,6 +25,12 @@
 #define SDCARD_MOSI_PIN  11
 #define SDCARD_SCK_PIN   13
 #define USBBAUD          115200
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+#define LOGO_HEIGHT   32
+#define LOGO_WIDTH    32
 
 // ====== AUDIO
 // AudioInputUSB            usb1;
@@ -62,6 +71,21 @@ byte mac[6];
 qindesign::network::EthernetUDP udp;
 websockets2_generic::WebsocketsServer socketServer;
 USBHost esp32Serial;
+RTC_DS3231 rtc;
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+
+const unsigned char PROGMEM calrecLogo [] = {
+  // 'calrecLogo, 32x32px
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x08, 0x00, 0x00, 0x7f, 0x07, 0x00, 0x01, 0xff, 0x01, 0x80,
+  0x03, 0xff, 0x00, 0xc0, 0x07, 0xfe, 0x00, 0x60, 0x0f, 0xf0, 0x10, 0x30, 0x1f, 0xc0, 0x08, 0x38,
+  0x3f, 0x80, 0x06, 0x1c, 0x3f, 0x00, 0x03, 0x0c, 0x3e, 0x00, 0x03, 0x0c, 0x7e, 0x00, 0x21, 0x86,
+  0x7c, 0x00, 0x10, 0x86, 0x7c, 0x00, 0x08, 0xc6, 0x7c, 0x00, 0x08, 0x46, 0x7c, 0x00, 0x08, 0x42,
+  0x7c, 0x00, 0x04, 0x42, 0x7c, 0x00, 0x04, 0x42, 0x7c, 0x00, 0x00, 0x02, 0x7c, 0x00, 0x00, 0x00,
+  0x7e, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0xe0, 0x1f, 0x80, 0x01, 0xf8,
+  0x1f, 0xc0, 0x07, 0xf0, 0x0f, 0xf0, 0x1f, 0xf0, 0x07, 0xff, 0xff, 0xe0, 0x03, 0xff, 0xff, 0xc0,
+  0x01, 0xff, 0xff, 0x80, 0x00, 0x7f, 0xfe, 0x00, 0x00, 0x1f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00
+};
 
 // ====== CLASSES
 IntervalTimer rtpOutputTimer;
@@ -77,7 +101,45 @@ void setup() {
   teensyMAC(mac);
 
   // Start USB host (power ESP32)
+  Serial.println("Setup ESP32");
   esp32Serial.begin();
+
+  // Start OLED display
+  Serial.println("Setup OLED");
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+  display.display();
+  delay(10);
+  drawDisplay();
+
+  // Start RTC clock
+  Serial.println("Setup clock");
+  rtc.begin();
+  if (rtc.lostPower()) {
+  Serial.println("Clock: Power lost setting time");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+  Serial.print("Time: ");
+  DateTime now = rtc.now();
+  Serial.print(now.year(), DEC);
+  Serial.print('/');
+  Serial.print(now.month(), DEC);
+  Serial.print('/');
+  Serial.print(now.day(), DEC);
+  Serial.print(" (");
+  Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
+  Serial.print(") ");
+  Serial.print(now.hour(), DEC);
+  Serial.print(':');
+  Serial.print(now.minute(), DEC);
+  Serial.print(':');
+  Serial.print(now.second(), DEC);
+  Serial.println();
+  Serial.print("Temperature: ");
+  Serial.print(rtc.getTemperature());
+  Serial.println(" C");
 
   // Setup audio board
   Serial.println("Setup audio");
@@ -172,4 +234,10 @@ TrellisCallback onButtonAction(keyEvent evt){
   }
 
   return 0;
+}
+
+void drawDisplay() {
+  display.clearDisplay();
+  display.drawBitmap(0, 0, calrecLogo, LOGO_WIDTH, LOGO_HEIGHT, SSD1306_WHITE);
+  display.display();
 }
