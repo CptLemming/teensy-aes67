@@ -1,10 +1,12 @@
 #include <QNEthernet.h>
 #include "audioBoard.h"
+#include "ptp.h"
 
-AudioBoard::AudioBoard(AudioPlayQueue &audioReceiverQueue, AudioRecordQueue &audioTransmitterQueue, qindesign::network::EthernetUDP &udp) {
+AudioBoard::AudioBoard(AudioPlayQueue &audioReceiverQueue, AudioRecordQueue &audioTransmitterQueue, qindesign::network::EthernetUDP &udp, PTP &ptp) {
   _audioReceiverQueue = &audioReceiverQueue;
   _audioTransmitterQueue = &audioTransmitterQueue;
   _udp = &udp;
+  _ptp = &ptp;
   _startupTimestamp = millis();
 }
 
@@ -52,11 +54,12 @@ void AudioBoard::sendRTPData() {
   int bufferIndex = _OutputQueue.front();
   _OutputQueue.pop();
 
-  _outputTimestamp = millis();
+  _outputTimestamp = _ptp->getTime();
+
   _outputBuffer[bufferIndex][0] = _rtpPayloadType;
   _outputBuffer[bufferIndex][1] = _sequenceNo;
-  _outputBuffer[bufferIndex][2] = _outputTimestamp >> 16;
-  _outputBuffer[bufferIndex][3] = 0;
+  _outputBuffer[bufferIndex][2] = (_outputTimestamp.microseconds * 1000) >> 16;
+  _outputBuffer[bufferIndex][3] = (_outputTimestamp.microseconds * 1000);
   _outputBuffer[bufferIndex][4] = _ssrc >> 16;
   _outputBuffer[bufferIndex][5] = 0;
 

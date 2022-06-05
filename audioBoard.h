@@ -4,6 +4,7 @@
 #include <Audio.h>
 #include <QNEthernet.h>
 #include <queue>
+#include "ptp.h"
 
 class AudioBoard {
   public:
@@ -11,11 +12,12 @@ class AudioBoard {
     void readPackets();
     void readAudio();
     void sendRTPData();
-    AudioBoard(AudioPlayQueue &audioReceiverQueue, AudioRecordQueue &audioTransmitterQueue, qindesign::network::EthernetUDP &Udp);
+    AudioBoard(AudioPlayQueue &audioReceiverQueue, AudioRecordQueue &audioTransmitterQueue, qindesign::network::EthernetUDP &Udp, PTP &ptp);
   private:
     AudioPlayQueue *_audioReceiverQueue;
     AudioRecordQueue *_audioTransmitterQueue;
     qindesign::network::EthernetUDP *_udp;
+    PTP *_ptp;
     unsigned long _packetTimestamp = 0;
     unsigned long _startupTimestamp = 0;
     uint8_t _incomingAudioBuffer[256];
@@ -33,7 +35,7 @@ class AudioBoard {
     int _outputBufferReaderIndex = 0;
     int _outputBufferWriterIndex = 0;
     int _bufferIndex = 0;
-    unsigned long _outputTimestamp = 0;
+    Time _outputTimestamp = Time{0, 0};
     unsigned long _outputLastTimestamp = 0;
     unsigned long _ssrc = 1649937450;
     unsigned short _rtpPayloadType = 32864;

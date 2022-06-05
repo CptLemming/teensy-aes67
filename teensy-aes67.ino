@@ -18,6 +18,7 @@
 #include "input_i2s2_16bit.h"
 #include "audioBoard.h"
 #include "deviceModel.h"
+#include "ptp.h"
 #include "websocket.hpp"
 #include "plotter.h"
 
@@ -42,10 +43,11 @@ AudioOutputI2S            i2s;
 AudioInputI2S2_16bitslave i2sSlaveInput;
 // AudioOutputUSB           usb2;
 AudioSynthWaveform        waveform1;
-AudioConnection           patchCord1(i2sSlaveInput, 0, plotter, 0);
-AudioConnection           patchCord2(i2sSlaveInput, 1, plotter, 1);
-AudioConnection           patchCord3(i2sSlaveInput, 0, i2s, 0);
-AudioConnection           patchCord4(i2sSlaveInput, 1, i2s, 1);
+AudioConnection           patchCord1(waveform1, 0, plotter, 0);
+AudioConnection           patchCord2(waveform1, 0, plotter, 1);
+AudioConnection           patchCord3(waveform1, 0, audioTransmitterQueue, 0);
+AudioConnection           patchCord4(waveform1, 0, i2s, 0);
+AudioConnection           patchCord5(waveform1, 0, i2s, 1);
 // Receive network audio, play to USB & headphone jack
 // AudioConnection          patchCord1(audioReceiverQueue, 0, plotter, 0);
 // AudioConnection          patchCord2(audioReceiverQueue, 0, plotter, 1);
@@ -69,6 +71,8 @@ IPAddress gateway{192, 168, 30, 1};
 // ====== VARIABLES
 byte mac[6];
 qindesign::network::EthernetUDP udp;
+qindesign::network::EthernetUDP ptpEvent;
+qindesign::network::EthernetUDP ptpManagement;
 websockets2_generic::WebsocketsServer socketServer;
 USBHost esp32Serial;
 RTC_DS3231 rtc;
@@ -90,7 +94,8 @@ const unsigned char PROGMEM calrecLogo [] = {
 // ====== CLASSES
 IntervalTimer rtpOutputTimer;
 Adafruit_NeoTrellis trellis;
-AudioBoard audioBoard(audioReceiverQueue, audioTransmitterQueue, udp);
+PTP ptp(mac, rtc, ptpEvent, ptpManagement);
+AudioBoard audioBoard(audioReceiverQueue, audioTransmitterQueue, udp, ptp);
 DeviceModel deviceModel;
 CCPWebsocket websocket(socketServer, deviceModel, trellis);
 
@@ -145,11 +150,10 @@ void setup() {
   Serial.println("Setup audio");
   AudioMemory(128);
   sgtl5000_1.enable();
-  sgtl5000_1.volume(0.5);
+  sgtl5000_1.volume(0.8);
   audioReceiverQueue.setBehaviour(AudioPlayQueue::NON_STALLING);
   audioReceiverQueue.setMaxBuffers(8);
   audioTransmitterQueue.begin();
-  audioBoard.start();
 
   waveform1.pulseWidth(0.5);
   waveform1.begin(0.4, 220, WAVEFORM_PULSE);
@@ -178,6 +182,10 @@ void setup() {
   qindesign::network::Ethernet.begin(staticIP, subnetMask, gateway);
   qindesign::network::Ethernet.onLinkState([](bool state) {
     Serial.printf("[Ethernet] Link %s\n", state ? "ON" : "OFF");
+    if (state) {
+      audioBoard.start();
+      ptp.start();
+    }
   });
 
   // Start websocket server.
@@ -216,6 +224,7 @@ void sendRTPData() {
 }
 
 void loop() {
+  ptp.update();
   websocket.update();
   audioBoard.readPackets();
   audioBoard.readAudio();
