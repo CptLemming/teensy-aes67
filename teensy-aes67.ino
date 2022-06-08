@@ -30,8 +30,6 @@
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-#define LOGO_HEIGHT   32
-#define LOGO_WIDTH    32
 
 // ====== AUDIO
 // AudioInputUSB            usb1;
@@ -79,25 +77,13 @@ RTC_DS3231 rtc;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
-const unsigned char PROGMEM calrecLogo [] = {
-  // 'calrecLogo, 32x32px
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x08, 0x00, 0x00, 0x7f, 0x07, 0x00, 0x01, 0xff, 0x01, 0x80,
-  0x03, 0xff, 0x00, 0xc0, 0x07, 0xfe, 0x00, 0x60, 0x0f, 0xf0, 0x10, 0x30, 0x1f, 0xc0, 0x08, 0x38,
-  0x3f, 0x80, 0x06, 0x1c, 0x3f, 0x00, 0x03, 0x0c, 0x3e, 0x00, 0x03, 0x0c, 0x7e, 0x00, 0x21, 0x86,
-  0x7c, 0x00, 0x10, 0x86, 0x7c, 0x00, 0x08, 0xc6, 0x7c, 0x00, 0x08, 0x46, 0x7c, 0x00, 0x08, 0x42,
-  0x7c, 0x00, 0x04, 0x42, 0x7c, 0x00, 0x04, 0x42, 0x7c, 0x00, 0x00, 0x02, 0x7c, 0x00, 0x00, 0x00,
-  0x7e, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0xe0, 0x1f, 0x80, 0x01, 0xf8,
-  0x1f, 0xc0, 0x07, 0xf0, 0x0f, 0xf0, 0x1f, 0xf0, 0x07, 0xff, 0xff, 0xe0, 0x03, 0xff, 0xff, 0xc0,
-  0x01, 0xff, 0xff, 0x80, 0x00, 0x7f, 0xfe, 0x00, 0x00, 0x1f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
 // ====== CLASSES
 IntervalTimer rtpOutputTimer;
 Adafruit_NeoTrellis trellis;
 PTP ptp(mac, rtc, ptpEvent, ptpManagement);
 AudioBoard audioBoard(audioReceiverQueue, audioTransmitterQueue, udp, ptp);
 DeviceModel deviceModel;
-CCPWebsocket websocket(socketServer, deviceModel, trellis);
+CCPWebsocket websocket(socketServer, deviceModel, trellis, display);
 
 void setup() {
   Serial.begin(115200);
@@ -108,16 +94,6 @@ void setup() {
   // Start USB host (power ESP32)
   Serial.println("Setup ESP32");
   esp32Serial.begin();
-
-  // Start OLED display
-  Serial.println("Setup OLED");
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
-  }
-  display.display();
-  delay(10);
-  drawDisplay();
 
   // Start RTC clock
   Serial.println("Setup clock");
@@ -174,6 +150,16 @@ void setup() {
   // deviceModel.loadConfig();
   deviceModel.createDefaultConfig();
   deviceModel.saveConfig();
+
+  // Start OLED display
+  Serial.println("Setup OLED");
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+  display.display();
+  delay(10);
+  websocket.drawDisplay();
 
   // Setup networking
   Serial.println("Setup network");
@@ -233,20 +219,14 @@ void loop() {
 }
 
 TrellisCallback onButtonAction(keyEvent evt){
-  Serial.print("Press btn ::");
-  Serial.println(evt.bit.NUM);
+  Serial.printf("Press btn :: %d\n", evt.bit.NUM);
 
-  // 8x GPI buttons
-  if (evt.bit.NUM >= 0 && evt.bit.NUM < 8) {
+  // 4x GPI buttons
+  if (evt.bit.NUM >= 0 && evt.bit.NUM < 4) {
     deviceModel.updateGpiState(evt.bit.NUM, evt.bit.EDGE == SEESAW_KEYPAD_EDGE_RISING);
-    websocket.processPinChange();
+    // websocket.processPinChange();
+    websocket.updatePin(evt.bit.NUM);
   }
 
   return 0;
-}
-
-void drawDisplay() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, calrecLogo, LOGO_WIDTH, LOGO_HEIGHT, SSD1306_WHITE);
-  display.display();
 }

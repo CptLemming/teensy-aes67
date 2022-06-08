@@ -230,3 +230,7 @@ void DeviceModel::updateGpiState(int index, bool value) {
 void DeviceModel::updateGpiInvert(int index, bool value) {
   _doc["calrec"]["gpi"][String(index)]["inverted"].set(value);
 }
+
+void DeviceModel::updateHardwareName(char* value) {
+  _doc["calrec"]["hardware"]["name"].set(value);
+}

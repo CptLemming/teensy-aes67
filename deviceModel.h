@@ -12,6 +12,7 @@ class DeviceModel {
     void createDefaultConfig();
     void updateGpiInvert(int index, bool value);
     void updateGpiState(int index, bool value);
+    void updateHardwareName(char* value);
   private:
     StaticJsonDocument<4000> _doc;
     const char *_filename = "/config.json";
