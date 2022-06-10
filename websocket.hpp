@@ -36,9 +36,8 @@ class CCPWebsocket {
 
       // Advertise as a Calrec device
       MDNS.begin("FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri");
-      MDNS.setServiceName("UR6500-14E1ABA93A3F-0-pri-5");
-      MDNS.addService("_http", "_tcp", 8080);
-      MDNS.addService("_calrec-node", "_tcp", _websocketServerPort, []() {
+      MDNS.addService("UR6500-14E1ABA93A3F-0-pri-5", "_http", "_tcp", 8080);
+      MDNS.addService("UR6500-14E1ABA93A3F-0-pri-5", "_calrec-node", "_tcp", _websocketServerPort, []() {
         return std::vector<String>{
           "nic=2",
           "address=192.168.30.210",
@@ -51,6 +50,7 @@ class CCPWebsocket {
     void update() {
       listenForSocketClients();
       pollSocketClients();
+      pollSocketRemoteClients();
       listenForHttpClients();
     }
 
@@ -75,8 +75,9 @@ class CCPWebsocket {
       _display->display();
     }
 
-    void updatePin(int index) {
-      Serial.printf("Pin changed %d\n", index);
+    // Must trigger an update to remote device
+    void updateGpiPin(int index) {
+      Serial.printf("GPI pin changed %d\n", index);
       StaticJsonDocument<2000> outgoing;
       // JsonArray outgoingData = outgoing.createNestedArray("data");
 
@@ -100,8 +101,49 @@ class CCPWebsocket {
 
       JsonObject pinUpdateDoc = outgoing.createNestedObject();
       pinUpdateDoc["op"] = "replace";
-      pinUpdateDoc["path"] = "/calrec/gpi/" + String(index) + "/state";
+      // FIXME Cheat here, hard code a specific remote GPI
+      pinUpdateDoc["path"] = "/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpis/" + String(index) + "/state";
       pinUpdateDoc["value"] = _deviceModel->getDocument()["calrec"]["gpi"][String(index)]["state"];
+
+      StringStream pinOutput;
+      serializeJson(outgoing, pinOutput);
+
+      Serial.println("Send GPI active state");
+      serializeJson(outgoing, Serial);
+      Serial.println();
+
+      if (_remoteSocketClient->available()) {
+        _remoteSocketClient->stream("");
+        while (pinOutput.available() > 0) {
+          _remoteSocketClient->send((char)pinOutput.read());
+        }
+        _remoteSocketClient->end("");
+      }
+    }
+
+    // Responds to remote updates
+    void updateGpoPin(int index) {
+      Serial.printf("GPO pin changed %d\n", index);
+      StaticJsonDocument<2000> outgoing;
+      // JsonArray outgoingData = outgoing.createNestedArray("data");
+
+      uint32_t buttonColour = _trellis->pixels.Color(255, 0, 0);
+
+      bool isGpoActive = _deviceModel->getDocument()["calrec"]["gpo"][String(index)]["state"];
+      bool isGpoInverted = _deviceModel->getDocument()["calrec"]["gpo"][String(index)]["inverted"];
+      if (isGpoInverted) isGpoActive = !isGpoActive;
+
+      if (isGpoActive) {
+        _trellis->pixels.setPixelColor(index, buttonColour);
+      } else {
+        _trellis->pixels.setPixelColor(index, 0);
+      }
+      _trellis->pixels.show();
+
+      JsonObject pinUpdateDoc = outgoing.createNestedObject();
+      pinUpdateDoc["op"] = "replace";
+      pinUpdateDoc["path"] = "/calrec/gpo/" + String(index) + "/state";
+      pinUpdateDoc["value"] = _deviceModel->getDocument()["calrec"]["gpo"][String(index)]["state"];
 
       StringStream pinOutput;
       serializeJson(outgoing, pinOutput);
@@ -179,7 +221,8 @@ class CCPWebsocket {
       }
     }
 
-    CCPWebsocket(websockets2_generic::WebsocketsServer &socketServer, DeviceModel &deviceModel, Adafruit_NeoTrellis &trellis, Adafruit_SSD1306 &display) {
+    CCPWebsocket(websockets2_generic::WebsocketsServer &socketServer, websockets2_generic::WebsocketsClient &socketClient, DeviceModel &deviceModel, Adafruit_NeoTrellis &trellis, Adafruit_SSD1306 &display) {
+      _remoteSocketClient = &socketClient;
       _socketServer = &socketServer;
       _deviceModel = &deviceModel;
       _trellis = &trellis;
@@ -224,6 +267,12 @@ class CCPWebsocket {
       for (byte i = 0; i < _maxSocketClients; i++)
       {
         _socketClients[i].poll();
+      }
+    }
+
+    void pollSocketRemoteClients() {
+      if (_remoteSocketClient->available()) {
+        _remoteSocketClient->poll();
       }
     }
 
@@ -283,6 +332,7 @@ class CCPWebsocket {
     Adafruit_SSD1306 *_display;
     websockets2_generic::WebsocketsClient _socketClients[_maxSocketClients];
     websockets2_generic::WebsocketsServer *_socketServer;
+    websockets2_generic::WebsocketsClient *_remoteSocketClient;
     EthernetServer *_httpServer;
 
     int8_t getFreeSocketClientIndex() {
@@ -353,6 +403,9 @@ class CCPWebsocket {
             } else if (strcmp(path, "/calrec/hardware/model") == 0) {
               outgoing["data"] = _deviceModel->getDocument()["calrec"]["hardware"]["model"];
             } else if (strcmp(path, "/calrec/gpi/0") == 0) {
+              JsonObject outgoingData = outgoing.createNestedObject("data");
+              outgoingData.set(_deviceModel->getDocument()["calrec"]["gpi"]["0"]);
+            } else if (strcmp(path, "/calrec/gpo/0") == 0) {
               JsonObject outgoingData = outgoing.createNestedObject("data");
               outgoingData.set(_deviceModel->getDocument()["calrec"]["gpo"]["0"]);
             } else {
@@ -431,6 +484,11 @@ class CCPWebsocket {
               bool value = message["value"];
               _deviceModel->updateGpiInvert(7, value);
               processPinChange();
+            } else if (strcmp(path, "/calrec/gpo/0/state") == 0) {
+              Serial.println("Update GPO 1 state");
+              bool value = message["value"];
+              _deviceModel->updateGpoState(0, value);
+              updateGpoPin(0);
             } else if (strcmp(path, "/calrec/input/0/gain") == 0) {
               Serial.println("Update Input 0 gain");
               long value = message["value"];
