@@ -141,7 +141,9 @@ void setup() {
 
   // Start a timer to send RTP data every 1ms
   Serial.println("Start timer");
-  rtpOutputTimer.begin(sendRTPData, 1000);
+  rtpOutputTimer.begin([&]() {
+    audioBoard.sendRTPData();
+  }, 1000);
 
   // Setup SD card
   Serial.println("Setup SD card");
