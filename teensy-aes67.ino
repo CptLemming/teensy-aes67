@@ -88,6 +88,11 @@ CCPWebsocket websocket(socketServer, deviceModel, trellis, display);
 void setup() {
   Serial.begin(115200);
 
+  if ( Serial && CrashReport ) {
+    // Output a crash report on reboot
+    Serial.print(CrashReport);
+  }
+
   // Set the MAC address.
   teensyMAC(mac);
 
