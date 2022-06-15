@@ -71,11 +71,7 @@ byte mac[6];
 qindesign::network::EthernetUDP udp;
 qindesign::network::EthernetUDP ptpEvent;
 qindesign::network::EthernetUDP ptpManagement;
-qindesign::network::EthernetClient ethClient;
-std::shared_ptr<websockets2_generic::network2_generic::EthernetTcpClient> tcpClient(new websockets2_generic::network2_generic::EthernetTcpClient(ethClient));
-websockets2_generic::WebsocketsClient socketClient(tcpClient);
 websockets2_generic::WebsocketsServer socketServer;
-elapsedMillis websocketHeartbeatTimer;
 USBHost esp32Serial;
 RTC_DS3231 rtc;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -87,7 +83,7 @@ Adafruit_NeoTrellis trellis;
 PTP ptp(mac, rtc, ptpEvent, ptpManagement);
 AudioBoard audioBoard(audioReceiverQueue, audioTransmitterQueue, udp, ptp);
 DeviceModel deviceModel;
-CCPWebsocket websocket(socketServer, socketClient, deviceModel, trellis, display);
+CCPWebsocket websocket(socketServer, deviceModel, trellis, display);
 
 void setup() {
   Serial.begin(115200);
@@ -206,32 +202,6 @@ void setup() {
 
   // [DEBUG] Setup serial plotter
   plotter.activate(true);
-
-  delay(5000);
-  // FIXME This isn't having an effect
-  // The default is 1s and the real device needs ~3-5s
-  ethClient.setConnectionTimeout(10000);
-
-  // const char* url  = "ws://192.168.30.51:50002";
-  const char* url  = "ws://UR6500-70B3D5042D33-1-pri.local:50002";
-  String hostname = "FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri";
-  websockets2_generic::WSString base64Authorization = websockets2_generic::crypto2_generic::base64Encode((uint8_t *)hostname.c_str(), hostname.length());
-  socketClient.addHeader("Authorization", base64Authorization.c_str());
-  if (socketClient.connect(url)) {
-    Serial.printf("Connected to server %s\n", url);
-  } else {
-    Serial.println("Couldn't connect to server!");
-  }
-
-  // socketClient.onMessage([&](websockets2_generic::WebsocketsMessage message) {
-  //   Serial.print("Got WS Message: ");
-  //   Serial.println(message.data());
-  // });
-}
-
-// TODO Can this be inlined in the timer call
-void sendRTPData() {
-  audioBoard.sendRTPData();
 }
 
 void loop() {
@@ -243,13 +213,6 @@ void loop() {
   esp32Serial.Task();
 
   // TODO Move this to the socket manager
-  if (websocketHeartbeatTimer > 1000) {
-    websocketHeartbeatTimer = 0;
-
-    if (socketClient.available()) {
-      socketClient.send("{\"hb\":\"hb\"}");
-    }
-  }
 }
 
 TrellisCallback onButtonAction(keyEvent evt){

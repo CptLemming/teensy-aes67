@@ -25,6 +25,7 @@ const unsigned char PROGMEM calrecLogo [] = {
 #include <StreamUtils.h>
 #include <TeensyID.h>
 #include <WebSockets2_Generic.h>
+#include <vector>
 
 #include "deviceModel.h"
 
@@ -51,6 +52,7 @@ class CCPWebsocket {
       listenForSocketClients();
       pollSocketClients();
       pollSocketRemoteClients();
+      remoteSocketsHeartbeat();
       listenForHttpClients();
     }
 
@@ -66,7 +68,8 @@ class CCPWebsocket {
       _display->println(hardwareName);
 
       _display->setCursor(44, 8);
-      _display->println(F("192.168.30.210"));
+      char* nicAddress = _deviceModel->getDocument()["calrec"]["hardware"]["nics"]["5"]["address"];
+      _display->println(nicAddress);
 
       _display->setCursor(44, 16);
       _display->print(F("Sockets: "));
@@ -75,11 +78,10 @@ class CCPWebsocket {
       _display->display();
     }
 
-    // Must trigger an update to remote device
+    // Trigger an update to remote device
     void updateGpiPin(int index) {
       Serial.printf("GPI pin changed %d\n", index);
       StaticJsonDocument<2000> outgoing;
-      // JsonArray outgoingData = outgoing.createNestedArray("data");
 
       uint32_t colours[] = {
         _trellis->pixels.Color(255, 0, 0),
@@ -101,31 +103,34 @@ class CCPWebsocket {
 
       JsonObject pinUpdateDoc = outgoing.createNestedObject();
       pinUpdateDoc["op"] = "replace";
-      // FIXME Cheat here, hard code a specific remote GPI
-      pinUpdateDoc["path"] = "/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpis/" + String(index) + "/state";
-      pinUpdateDoc["value"] = _deviceModel->getDocument()["calrec"]["gpi"][String(index)]["state"];
-
-      StringStream pinOutput;
-      serializeJson(outgoing, pinOutput);
+      pinUpdateDoc["path"] = "/calrec/gpi/" + String(index) + "/state";
+      pinUpdateDoc["value"] = isGpiActive;
 
       Serial.println("Send GPI active state");
       serializeJson(outgoing, Serial);
       Serial.println();
 
-      if (_remoteSocketClient->available()) {
-        _remoteSocketClient->stream("");
-        while (pinOutput.available() > 0) {
-          _remoteSocketClient->send((char)pinOutput.read());
+      for (byte i = 0; i < _maxSocketClients; i++) {
+        if (_socketClients[i].available()) {
+          // TODO Can we serialize once and copy multiple times
+          StringStream pinOutput;
+          serializeJson(outgoing, pinOutput);
+
+          _socketClients[i].stream("");
+          while (pinOutput.available() > 0) {
+            _socketClients[i].send((char)pinOutput.read());
+          }
+          _socketClients[i].end("");
         }
-        _remoteSocketClient->end("");
       }
     }
 
     // Responds to remote updates
-    void updateGpoPin(int index) {
+    void updateGpoPin(int index, websockets2_generic::WebsocketsClient &client) {
       Serial.printf("GPO pin changed %d\n", index);
-      StaticJsonDocument<2000> outgoing;
-      // JsonArray outgoingData = outgoing.createNestedArray("data");
+      StaticJsonDocument<4000> outgoing;
+      JsonObject outgoingResponse = outgoing.createNestedObject("response");
+      outgoingResponse["code"] = 200;
 
       uint32_t buttonColour = _trellis->pixels.Color(255, 0, 0);
 
@@ -140,29 +145,79 @@ class CCPWebsocket {
       }
       _trellis->pixels.show();
 
-      JsonObject pinUpdateDoc = outgoing.createNestedObject();
+      JsonArray outgoingData = outgoing.createNestedArray("data");
+      JsonObject pinUpdateDoc = outgoingData.createNestedObject();
       pinUpdateDoc["op"] = "replace";
       pinUpdateDoc["path"] = "/calrec/gpo/" + String(index) + "/state";
-      pinUpdateDoc["value"] = _deviceModel->getDocument()["calrec"]["gpo"][String(index)]["state"];
+      pinUpdateDoc["value"] = isGpoActive;
 
       StringStream pinOutput;
       serializeJson(outgoing, pinOutput);
 
-      Serial.println("Send active state");
+      Serial.println("Send GPO active state");
       serializeJson(outgoing, Serial);
       Serial.println();
 
-      for (byte i = 0; i < _maxSocketClients; i++)
-      {
-        if (_socketClients[i].available()) {
-
-          _socketClients[i].stream("");
-          while (pinOutput.available() > 0) {
-            _socketClients[i].send((char)pinOutput.read());
-          }
-          _socketClients[i].end("");
-        }
+      client.stream("");
+      while (pinOutput.available() > 0) {
+        client.send((char)pinOutput.read());
       }
+      client.end("");
+    }
+
+    void subscribeToRemoteGpo(int index, const char* hostname, const char* path) {
+      Serial.printf("GPO start subscription %s %s\n", hostname, path);
+      StaticJsonDocument<200> outgoing;
+      JsonObject patchDoc = outgoing.createNestedObject();
+      patchDoc["op"] = "add";
+      patchDoc["path"] = "/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpos/0/ioport/destinations/-";
+      JsonObject patchDocValue = patchDoc.createNestedObject("value");
+      patchDocValue["hostname"] = "FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri.local";
+      patchDocValue["protocol"] = "calrec_hca";
+      patchDocValue["url"] = "/calrec/gpo/" + String(index);
+      StaticJsonDocument<200> outgoing2;
+      JsonObject subDoc = outgoing2.createNestedObject();
+      subDoc["op"] = "subscribe";
+      subDoc["path"] = "/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpos/0";
+
+      StringStream sub;
+      serializeJson(outgoing, sub);
+      StringStream sub2;
+      serializeJson(outgoing2, sub2);
+
+      Serial.println("Make remote subscription");
+      serializeJson(outgoing, Serial);
+      Serial.println();
+
+      // TODO Check for an existing ws to the same host and re-use
+      websockets2_generic::WebsocketsClient remoteSocketClient;
+      _remoteSocketClients->push_back(remoteSocketClient);
+
+      String buildUrl = "ws://";
+      buildUrl += hostname;
+      buildUrl += ":50002";
+      const char* url = buildUrl.c_str();
+      const char* url  = "ws://UR6500-70B3D5042D33-1-pri.local:50002";
+      String localHostname = "FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri";
+      websockets2_generic::WSString base64Authorization = websockets2_generic::crypto2_generic::base64Encode((uint8_t *)localHostname.c_str(), localHostname.length());
+      remoteSocketClient.addHeader("Authorization", base64Authorization.c_str());
+      if (remoteSocketClient.connect(url)) {
+        Serial.printf("Connected to remote server %s\n", url);
+
+        delay(1000);
+        remoteSocketClient.stream("");
+        while (sub.available() > 0) {
+          remoteSocketClient.send((char)sub.read());
+        }
+        remoteSocketClient.end("");
+      } else {
+        Serial.printf("Couldn't connect to remote server %s!\n", url);
+      }
+
+      remoteSocketClient.onMessage([&](websockets2_generic::WebsocketsMessage message) {
+        Serial.print("Got remote WS Message: ");
+        Serial.println(message.data());
+      });
     }
 
     void processPinChange() {
@@ -221,8 +276,7 @@ class CCPWebsocket {
       }
     }
 
-    CCPWebsocket(websockets2_generic::WebsocketsServer &socketServer, websockets2_generic::WebsocketsClient &socketClient, DeviceModel &deviceModel, Adafruit_NeoTrellis &trellis, Adafruit_SSD1306 &display) {
-      _remoteSocketClient = &socketClient;
+    CCPWebsocket(websockets2_generic::WebsocketsServer &socketServer, DeviceModel &deviceModel, Adafruit_NeoTrellis &trellis, Adafruit_SSD1306 &display) {
       _socketServer = &socketServer;
       _deviceModel = &deviceModel;
       _trellis = &trellis;
@@ -255,8 +309,7 @@ class CCPWebsocket {
     uint8_t numFreeSockets() {
       uint8_t result = 0;
 
-      for (byte i = 0; i < _maxSocketClients; i++)
-      {
+      for (byte i = 0; i < _maxSocketClients; i++) {
         if (_socketClients[i].available()) result++;
       }
 
@@ -264,15 +317,26 @@ class CCPWebsocket {
     }
 
     void pollSocketClients() {
-      for (byte i = 0; i < _maxSocketClients; i++)
-      {
+      for (byte i = 0; i < _maxSocketClients; i++) {
         _socketClients[i].poll();
       }
     }
 
     void pollSocketRemoteClients() {
-      if (_remoteSocketClient->available()) {
-        _remoteSocketClient->poll();
+      for (byte i = 0; i < _maxRemoteSocketClients; i++) {
+        _remoteSocketClients->at(i).poll();
+      }
+    }
+
+    void remoteSocketsHeartbeat() {
+      if (websocketHeartbeatTimer > 1000) {
+        websocketHeartbeatTimer = 0;
+
+        for (byte i = 0; i < _maxRemoteSocketClients; i++) {
+          if (_remoteSocketClients->at(i).available()) {
+            _remoteSocketClients->at(i).send("{\"hb\":\"hb\"}");
+          }
+        }
       }
     }
 
@@ -325,14 +389,16 @@ class CCPWebsocket {
     }
   private:
     static const byte _maxSocketClients = 4;
+    static const byte _maxRemoteSocketClients = 4;
     static const uint16_t _websocketServerPort = 50002;
     static const uint16_t _httpServerPort = 8080;
     DeviceModel *_deviceModel;
     Adafruit_NeoTrellis *_trellis;
     Adafruit_SSD1306 *_display;
+    elapsedMillis websocketHeartbeatTimer;
     websockets2_generic::WebsocketsClient _socketClients[_maxSocketClients];
     websockets2_generic::WebsocketsServer *_socketServer;
-    websockets2_generic::WebsocketsClient *_remoteSocketClient;
+    std::vector<websockets2_generic::WebsocketsClient> _remoteSocketClients[_maxRemoteSocketClients] = {};
     EthernetServer *_httpServer;
 
     int8_t getFreeSocketClientIndex() {
@@ -387,6 +453,7 @@ class CCPWebsocket {
           // Core Remote GPO -> Local GPO
           // Got Message: [{"op":"replace","path":"/calrec/gpo/0/ioport/source","value":{"hostname":"UR6500-70B3D5042D33-0-pri.local","protocol":"calrec_hca","url":"/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpos/0"}}]
           // Got Message: [{"op":"add","path":"/calrec/gpi/0/ioport/destinations/-","value":{"hostname":"UR6500-70B3D5042D33-0-pri.local","protocol":"calrec_hca","url":"/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpis/0"}}]
+          // Got Message: [{"op":"remove","path":"/calrec/gpi/0/ioport/destinations","value":{"hostname":"UR6500-70B3D5042D33-1-pri.local","protocol":"calrec_hca","url":"/calrec/gpiogroups/c1a60653-2d63-4403-8c9b-82af38c789e2/gpis/0"}}]
 
           if (strcmp(operation, "subscribe") == 0) {
             Serial.printf("Recv subscription :: %s\n", path);
@@ -488,7 +555,7 @@ class CCPWebsocket {
               Serial.println("Update GPO 1 state");
               bool value = message["value"];
               _deviceModel->updateGpoState(0, value);
-              updateGpoPin(0);
+              updateGpoPin(0, client);
             } else if (strcmp(path, "/calrec/input/0/gain") == 0) {
               Serial.println("Update Input 0 gain");
               long value = message["value"];
@@ -504,6 +571,12 @@ class CCPWebsocket {
                 Serial.println("Update Input 0 phpwr");
                 bool value = message["value"];
                 _deviceModel->getDocument()["input"][0]["phpwr"] = value;
+              } else if (strcmp(path, "/calrec/gpo/0/ioport/source") == 0) {
+                const char* gpoHostname = message["value"]["hostname"];
+                const char* gpoPath = message["value"]["url"];
+                if (gpoHostname != nullptr) {
+                  subscribeToRemoteGpo(0, gpoHostname, gpoPath);
+                }
               }
               StaticJsonDocument<4000> outgoing;
               JsonObject outgoingResponse = outgoing.createNestedObject("response");
