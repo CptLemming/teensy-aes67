@@ -196,7 +196,7 @@ class CCPWebsocket {
       String buildUrl = "ws://";
       buildUrl += hostname;
       buildUrl += ":50002";
-      const char* url = buildUrl.c_str();
+      // const char* url = buildUrl.c_str();
       const char* url  = "ws://UR6500-70B3D5042D33-1-pri.local:50002";
       String localHostname = "FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri";
       websockets2_generic::WSString base64Authorization = websockets2_generic::crypto2_generic::base64Encode((uint8_t *)localHostname.c_str(), localHostname.length());
