@@ -18,6 +18,7 @@
 #include "input_i2s2_16bit.h"
 #include "audioBoard.h"
 #include "deviceModel.h"
+#include "discovery.h"
 #include "ptp.h"
 #include "websocket.hpp"
 #include "plotter.h"
@@ -84,6 +85,7 @@ IntervalTimer rtpOutputTimer;
 Adafruit_NeoTrellis trellis;
 PTP ptp(mac, rtc, ptpEvent, ptpManagement);
 AudioBoard audioBoard(audioReceiverQueue, audioTransmitterQueue, udp, ptp);
+Discovery discovery(udp);
 DeviceModel deviceModel;
 CCPWebsocket websocket(socketServer, deviceModel, trellis, display);
 
@@ -185,6 +187,7 @@ void setup() {
       ptp.start();
     }
   });
+  discovery.start();
 
   // Start websocket server.
   Serial.println("Start webserver");
@@ -219,6 +222,7 @@ void setup() {
 void loop() {
   ptp.update();
   websocket.update();
+  discovery.update();
   audioBoard.readPackets();
   audioBoard.readAudio();
   trellis.read();

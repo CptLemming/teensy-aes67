@@ -34,18 +34,6 @@ class CCPWebsocket {
     void start()  {
       _socketServer->listen(_websocketServerPort);
       _httpServer->begin();
-
-      // Advertise as a Calrec device
-      MDNS.begin("FB464176-0000-0000-B6C9-24E1ABA93A3F-0-pri");
-      MDNS.addService("UR6500-14E1ABA93A3F-0-pri-5", "_http", "_tcp", 8080);
-      MDNS.addService("UR6500-14E1ABA93A3F-0-pri-5", "_calrec-node", "_tcp", _websocketServerPort, []() {
-        return std::vector<String>{
-          "nic=2",
-          "address=192.168.30.210",
-          "version=0.1",
-          "corestatus=ACTIVE"
-        };
-      });
     }
 
     void update() {
@@ -82,6 +70,9 @@ class CCPWebsocket {
     void updateGpiPin(int index) {
       Serial.printf("GPI pin changed %d\n", index);
       StaticJsonDocument<2000> outgoing;
+      outgoing["seq"] = _sequenceNo++;
+      outgoing["type"] = "p";
+      JsonArray patch = outgoing.createNestedArray("patch");
 
       uint32_t colours[] = {
         _trellis->pixels.Color(255, 0, 0),
@@ -101,7 +92,7 @@ class CCPWebsocket {
       }
       _trellis->pixels.show();
 
-      JsonObject pinUpdateDoc = outgoing.createNestedObject();
+      JsonObject pinUpdateDoc = patch.createNestedObject();
       pinUpdateDoc["op"] = "replace";
       pinUpdateDoc["path"] = "/calrec/gpi/" + String(index) + "/state";
       pinUpdateDoc["value"] = isGpiActive;
@@ -115,12 +106,7 @@ class CCPWebsocket {
           // TODO Can we serialize once and copy multiple times
           StringStream pinOutput;
           serializeJson(outgoing, pinOutput);
-
-          _socketClients[i].stream("");
-          while (pinOutput.available() > 0) {
-            _socketClients[i].send((char)pinOutput.read());
-          }
-          _socketClients[i].end("");
+          send(_socketClients[i], pinOutput);
         }
       }
     }
@@ -158,11 +144,7 @@ class CCPWebsocket {
       serializeJson(outgoing, Serial);
       Serial.println();
 
-      client.stream("");
-      while (pinOutput.available() > 0) {
-        client.send((char)pinOutput.read());
-      }
-      client.end("");
+      send(client, pinOutput);
     }
 
     void subscribeToRemoteGpo(int index, const char* hostname, const char* path) {
@@ -190,8 +172,9 @@ class CCPWebsocket {
       Serial.println();
 
       // TODO Check for an existing ws to the same host and re-use
+      int freeIndex = getFreeRemoteSocketClientIndex();
       websockets2_generic::WebsocketsClient remoteSocketClient;
-      _remoteSocketClients->push_back(remoteSocketClient);
+      _remoteSocketClients[freeIndex] = remoteSocketClient;
 
       String buildUrl = "ws://";
       buildUrl += hostname;
@@ -205,11 +188,7 @@ class CCPWebsocket {
         Serial.printf("Connected to remote server %s\n", url);
 
         delay(1000);
-        remoteSocketClient.stream("");
-        while (sub.available() > 0) {
-          remoteSocketClient.send((char)sub.read());
-        }
-        remoteSocketClient.end("");
+        send(remoteSocketClient, sub);
       } else {
         Serial.printf("Couldn't connect to remote server %s!\n", url);
       }
@@ -265,13 +244,7 @@ class CCPWebsocket {
       for (byte i = 0; i < _maxSocketClients; i++)
       {
         if (_socketClients[i].available()) {
-          // _socketClients[i].send(pinOutput);
-
-          _socketClients[i].stream("");
-          while (pinOutput.available() > 0) {
-            _socketClients[i].send((char)pinOutput.read());
-          }
-          _socketClients[i].end("");
+          send(_socketClients[i], pinOutput);
         }
       }
     }
@@ -324,7 +297,7 @@ class CCPWebsocket {
 
     void pollSocketRemoteClients() {
       for (byte i = 0; i < _maxRemoteSocketClients; i++) {
-        _remoteSocketClients->at(i).poll();
+        _remoteSocketClients[i].poll();
       }
     }
 
@@ -333,8 +306,8 @@ class CCPWebsocket {
         websocketHeartbeatTimer = 0;
 
         for (byte i = 0; i < _maxRemoteSocketClients; i++) {
-          if (_remoteSocketClients->at(i).available()) {
-            _remoteSocketClients->at(i).send("{\"hb\":\"hb\"}");
+          if (_remoteSocketClients[i].available()) {
+            _remoteSocketClients[i].send("{\"hb\":\"hb\"}");
           }
         }
       }
@@ -392,13 +365,14 @@ class CCPWebsocket {
     static const byte _maxRemoteSocketClients = 4;
     static const uint16_t _websocketServerPort = 50002;
     static const uint16_t _httpServerPort = 8080;
+    uint16_t _sequenceNo = 0;
     DeviceModel *_deviceModel;
     Adafruit_NeoTrellis *_trellis;
     Adafruit_SSD1306 *_display;
     elapsedMillis websocketHeartbeatTimer;
     websockets2_generic::WebsocketsClient _socketClients[_maxSocketClients];
     websockets2_generic::WebsocketsServer *_socketServer;
-    std::vector<websockets2_generic::WebsocketsClient> _remoteSocketClients[_maxRemoteSocketClients] = {};
+    websockets2_generic::WebsocketsClient _remoteSocketClients[_maxRemoteSocketClients];
     EthernetServer *_httpServer;
 
     int8_t getFreeSocketClientIndex() {
@@ -413,8 +387,18 @@ class CCPWebsocket {
       return -1;
     }
 
+    int8_t getFreeRemoteSocketClientIndex() {
+      for (byte i = 0; i < _maxRemoteSocketClients; i++) {
+        if (!_remoteSocketClients[i].available())
+          return i;
+      }
+
+      return -1;
+    }
+
     void handleMessage(websockets2_generic::WebsocketsClient &client, websockets2_generic::WebsocketsMessage message) {
-      auto data = message.data();
+      websockets2_generic::WSInterfaceString data = message.data();
+      data.remove(data.length() - 6);
 
       // Log message
       StaticJsonDocument<4000> incoming;
@@ -422,22 +406,22 @@ class CCPWebsocket {
 
       if (incoming.containsKey("hb")) {
         // Ping Pong!
-        client.send(data);
+        send(client, data);
       } else {
         Serial.print("Got Message: ");
         Serial.println(data);
         // Should be a JSON array
         Serial.print("Arr size: ");
-        Serial.println(incoming.size());
-        if (incoming.size() < 1) {
+        Serial.println(incoming["patch"].size());
+        if (incoming["patch"].size() < 1) {
           StaticJsonDocument<200> outgoing;
           outgoing.to<JsonArray>();
           Serial.println("Send blank array");
           String blankOutput;
           serializeJson(outgoing, blankOutput);
-          client.send(blankOutput);
+          send(client, blankOutput);
         } else {
-          JsonObject message = incoming[0];
+          JsonObject message = incoming["patch"][0];
           const char* operation = message["op"];
           const char* path = message["path"];
           Serial.print("Operation ");
@@ -460,6 +444,7 @@ class CCPWebsocket {
 
             // Doc is too big to be sent in one go, needs to be chunked / streamed
             StaticJsonDocument<4000> outgoing;
+            outgoing["seq"] = incoming["seq"];
             JsonObject outgoingResponse = outgoing.createNestedObject("response");
             outgoingResponse["code"] = 200;
 
@@ -483,33 +468,22 @@ class CCPWebsocket {
 
             StringStream stream;
             serializeJson(outgoing, stream);
+            send(client, stream);
 
-            client.stream("");
-
-            while (stream.available() > 0) {
-              client.send((char)stream.read());
-            }
-
-            client.end("");
-
-            Serial.println("Sent model data");
+            Serial.println("Sent model data >> ");
+            serializeJson(outgoing, Serial);
+            Serial.println();
           } else if (strcmp(operation, "unsubscribe") == 0) {
             Serial.printf("unsubscription :: %s\n", path);
             StaticJsonDocument<200> outgoing;
+            outgoing["seq"] = incoming["seq"];
             JsonObject outgoingResponse = outgoing.createNestedObject("response");
             outgoingResponse["code"] = 200;
             outgoing["data"] = nullptr;
 
             StringStream stream;
             serializeJson(outgoing, stream);
-
-            client.stream("");
-
-            while (stream.available() > 0) {
-              client.send((char)stream.read());
-            }
-
-            client.end("");
+            send(client, stream);
           } else if (strcmp(operation, "replace") == 0 || strcmp(operation, "remove") == 0) {
             if (strcmp(path, "/calrec/gpi/0/inverted") == 0) {
               Serial.println("Update GPI 1 invert");
@@ -585,14 +559,7 @@ class CCPWebsocket {
               outgoingData.add(message);
               StringStream stream;
               serializeJson(outgoing, stream);
-
-              client.stream("");
-
-              while (stream.available() > 0) {
-                client.send((char)stream.read());
-              }
-
-              client.end("");
+              send(client, stream);
 
               Serial.println("Echo back patch data");
             }
@@ -614,14 +581,7 @@ class CCPWebsocket {
 
               StringStream stream;
               serializeJson(outgoing, stream);
-
-              client.stream("");
-
-              while (stream.available() > 0) {
-                client.send((char)stream.read());
-              }
-
-              client.end("");
+              send(client, stream);
 
               Serial.println("Echo back destination data");
             } else if (strncmp(path, calrecSendersPath, strlen(calrecSendersPath)) == 0) {
@@ -645,14 +605,7 @@ class CCPWebsocket {
 
               StringStream stream;
               serializeJson(outgoing, stream);
-
-              client.stream("");
-
-              while (stream.available() > 0) {
-                client.send((char)stream.read());
-              }
-
-              client.end("");
+              send(client, stream);
 
               Serial.println("Echo back sender data");
             }
@@ -690,5 +643,25 @@ class CCPWebsocket {
       bufferedWifiClient.flush();
 
       Serial.println("request complete");
+    }
+
+    void send(websockets2_generic::WebsocketsClient &client, const websockets2_generic::WSInterfaceString &data) {
+      client.send(data + "^&*%£");
+    }
+
+    void send(websockets2_generic::WebsocketsClient &client, StringStream &stream) {
+      StringStream delim = StringStream{"^&*%£"};
+
+      client.stream("");
+
+      while (stream.available() > 0) {
+        client.send((char)stream.read());
+      }
+
+      while (delim.available() > 0) {
+        client.send((char)delim.read());
+      }
+
+      client.end("");
     }
 };
