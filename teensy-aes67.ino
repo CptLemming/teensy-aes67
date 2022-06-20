@@ -25,6 +25,8 @@
 #define SDCARD_CS_PIN    BUILTIN_SDCARD
 #define SDCARD_MOSI_PIN  11
 #define SDCARD_SCK_PIN   13
+#define ETH_STATUS_PIN   34
+#define ETH_DATA_PIN     33
 #define USBBAUD          115200
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -92,6 +94,8 @@ void setup() {
     // Output a crash report on reboot
     Serial.print(CrashReport);
   }
+  pinMode(ETH_STATUS_PIN, OUTPUT);
+  pinMode(ETH_DATA_PIN, OUTPUT);
 
   // Set the MAC address.
   teensyMAC(mac);
@@ -175,6 +179,7 @@ void setup() {
   qindesign::network::Ethernet.begin(staticIP, subnetMask, gateway);
   qindesign::network::Ethernet.onLinkState([](bool state) {
     Serial.printf("[Ethernet] Link %s\n", state ? "ON" : "OFF");
+    digitalWrite(ETH_STATUS_PIN, state ? HIGH : LOW);
     if (state) {
       audioBoard.start();
       ptp.start();
