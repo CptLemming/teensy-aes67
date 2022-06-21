@@ -32,7 +32,7 @@ void Discovery::send() {
   uint8_t writeBuffer[100];
   writeBuffer[bufferIndex++] = 1; // Message type = 1
   writeBuffer[bufferIndex++] = 1; // Message format = 1
-  writeBuffer[bufferIndex++] = 4; // CCP Version
+  writeBuffer[bufferIndex++] = 3; // CCP Version
   writeBuffer[bufferIndex++] = 3; // Core status (3=ACTIVE)
 
   // UUIDv4

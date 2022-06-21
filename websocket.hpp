@@ -20,6 +20,7 @@ const unsigned char PROGMEM calrecLogo [] = {
 };
 
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_NeoTrellis.h>
 #include <ArduinoJson.h>
 #include <QNEthernet.h>
 #include <StreamUtils.h>
@@ -70,9 +71,11 @@ class CCPWebsocket {
     void updateGpiPin(int index) {
       Serial.printf("GPI pin changed %d\n", index);
       StaticJsonDocument<2000> outgoing;
-      outgoing["seq"] = _sequenceNo++;
-      outgoing["type"] = "p";
-      JsonArray patch = outgoing.createNestedArray("patch");
+      // outgoing["seq"] = _sequenceNo++;
+      // outgoing["type"] = "p";
+      // JsonArray patch = outgoing.createNestedArray("patch");
+      // JsonObject pinUpdateDoc = patch.createNestedObject();
+      JsonObject pinUpdateDoc = outgoing.createNestedObject();
 
       uint32_t colours[] = {
         _trellis->pixels.Color(255, 0, 0),
@@ -92,7 +95,6 @@ class CCPWebsocket {
       }
       _trellis->pixels.show();
 
-      JsonObject pinUpdateDoc = patch.createNestedObject();
       pinUpdateDoc["op"] = "replace";
       pinUpdateDoc["path"] = "/calrec/gpi/" + String(index) + "/state";
       pinUpdateDoc["value"] = isGpiActive;
@@ -199,10 +201,11 @@ class CCPWebsocket {
       });
     }
 
-    void processPinChange() {
-      Serial.println("Pins changed");
+    void updateGpiPin(int index, websockets2_generic::WebsocketsClient &client) {
+      Serial.printf("GPI inverted changed %d\n", index);
 
       StaticJsonDocument<2000> outgoing;
+      outgoing["seq"] = _sequenceNo++;
       JsonObject outgoingResponse = outgoing.createNestedObject("response");
       outgoingResponse["code"] = 200;
       JsonArray outgoingData = outgoing.createNestedArray("data");
@@ -214,38 +217,32 @@ class CCPWebsocket {
         _trellis->pixels.Color(255, 255, 0)
       };
 
-      int numGpi = 4;
-      for (int i = 0; i < numGpi; i++) {
-        bool isGpiActive = _deviceModel->getDocument()["calrec"]["gpi"][String(i)]["state"];
-        bool isGpiInverted = _deviceModel->getDocument()["calrec"]["gpi"][String(i)]["inverted"];
-        if (isGpiInverted) isGpiActive = !isGpiActive;
+      bool isGpiActive = _deviceModel->getDocument()["calrec"]["gpi"][String(index)]["state"];
+      bool isGpiInverted = _deviceModel->getDocument()["calrec"]["gpi"][String(index)]["inverted"];
+      if (isGpiInverted) isGpiActive = !isGpiActive;
 
-        Serial.print("Set GPI "); Serial.println(i + 1); Serial.println(isGpiActive);
-        if (isGpiActive) {
-          _trellis->pixels.setPixelColor(i, colours[i]);
-        } else {
-          _trellis->pixels.setPixelColor(i, 0);
-        }
-
-        JsonObject pinUpdateDoc = outgoingData.createNestedObject();
-        pinUpdateDoc["op"] = "replace";
-        pinUpdateDoc["path"] = "/calrec/gpi/" + String(i) + "/inverted";
-        pinUpdateDoc["value"] = isGpiInverted;
+      if (isGpiActive) {
+        _trellis->pixels.setPixelColor(index, colours[index]);
+      } else {
+        _trellis->pixels.setPixelColor(index, 0);
       }
+
+      JsonObject pinUpdateDoc = outgoingData.createNestedObject();
+      pinUpdateDoc["op"] = "replace";
+      pinUpdateDoc["path"] = "/calrec/gpi/" + String(index) + "/inverted";
+      pinUpdateDoc["value"] = isGpiInverted;
 
       _trellis->pixels.show();
 
       StringStream pinOutput;
       serializeJson(outgoing, pinOutput);
 
-      Serial.println("Send reply");
+      Serial.println("Send GPI inverted state");
       serializeJson(outgoing, Serial);
+      Serial.println();
 
-      for (byte i = 0; i < _maxSocketClients; i++)
-      {
-        if (_socketClients[i].available()) {
-          send(_socketClients[i], pinOutput);
-        }
+      if (client.available()) {
+        send(client, pinOutput);
       }
     }
 
@@ -365,7 +362,7 @@ class CCPWebsocket {
     static const byte _maxRemoteSocketClients = 4;
     static const uint16_t _websocketServerPort = 50002;
     static const uint16_t _httpServerPort = 8080;
-    uint16_t _sequenceNo = 0;
+    uint32_t _sequenceNo = 0;
     DeviceModel *_deviceModel;
     Adafruit_NeoTrellis *_trellis;
     Adafruit_SSD1306 *_display;
@@ -444,7 +441,7 @@ class CCPWebsocket {
 
             // Doc is too big to be sent in one go, needs to be chunked / streamed
             StaticJsonDocument<4000> outgoing;
-            outgoing["seq"] = incoming["seq"];
+            outgoing["seq"] = _sequenceNo++;
             JsonObject outgoingResponse = outgoing.createNestedObject("response");
             outgoingResponse["code"] = 200;
 
@@ -476,7 +473,7 @@ class CCPWebsocket {
           } else if (strcmp(operation, "unsubscribe") == 0) {
             Serial.printf("unsubscription :: %s\n", path);
             StaticJsonDocument<200> outgoing;
-            outgoing["seq"] = incoming["seq"];
+            outgoing["seq"] = _sequenceNo++;
             JsonObject outgoingResponse = outgoing.createNestedObject("response");
             outgoingResponse["code"] = 200;
             outgoing["data"] = nullptr;
@@ -489,42 +486,22 @@ class CCPWebsocket {
               Serial.println("Update GPI 1 invert");
               bool value = message["value"];
               _deviceModel->updateGpiInvert(0, value);
-              processPinChange();
+              updateGpiPin(0, client);
             } else if (strcmp(path, "/calrec/gpi/1/inverted") == 0) {
               Serial.println("Update GPI 2 invert");
               bool value = message["value"];
               _deviceModel->updateGpiInvert(1, value);
-              processPinChange();
+              updateGpiPin(1, client);
             } else if (strcmp(path, "/calrec/gpi/2/inverted") == 0) {
               Serial.println("Update GPI 3 invert");
               bool value = message["value"];
               _deviceModel->updateGpiInvert(2, value);
-              processPinChange();
+              updateGpiPin(2, client);
             } else if (strcmp(path, "/calrec/gpi/3/inverted") == 0) {
               Serial.println("Update GPI 4 invert");
               bool value = message["value"];
               _deviceModel->updateGpiInvert(3, value);
-              processPinChange();
-            } else if (strcmp(path, "/calrec/gpi/4/inverted") == 0) {
-              Serial.println("Update GPI 5 invert");
-              bool value = message["value"];
-              _deviceModel->updateGpiInvert(4, value);
-              processPinChange();
-            } else if (strcmp(path, "/calrec/gpi/5/inverted") == 0) {
-              Serial.println("Update GPI 6 invert");
-              bool value = message["value"];
-              _deviceModel->updateGpiInvert(1, value);
-              processPinChange();
-            } else if (strcmp(path, "/calrec/gpi/6/inverted") == 0) {
-              Serial.println("Update GPI 7 invert");
-              bool value = message["value"];
-              _deviceModel->updateGpiInvert(6, value);
-              processPinChange();
-            } else if (strcmp(path, "/calrec/gpi/7/inverted") == 0) {
-              Serial.println("Update GPI 8 invert");
-              bool value = message["value"];
-              _deviceModel->updateGpiInvert(7, value);
-              processPinChange();
+              updateGpiPin(3, client);
             } else if (strcmp(path, "/calrec/gpo/0/state") == 0) {
               Serial.println("Update GPO 1 state");
               bool value = message["value"];
@@ -553,6 +530,7 @@ class CCPWebsocket {
                 }
               }
               StaticJsonDocument<4000> outgoing;
+              outgoing["seq"] = _sequenceNo++;
               JsonObject outgoingResponse = outgoing.createNestedObject("response");
               outgoingResponse["code"] = 200;
               JsonArray outgoingData = outgoing.createNestedArray("data");
@@ -572,6 +550,7 @@ class CCPWebsocket {
               destination.set(message["value"]);
 
               StaticJsonDocument<4000> outgoing;
+              outgoing["seq"] = _sequenceNo++;
               JsonObject outgoingResponse = outgoing.createNestedObject("response");
               outgoingResponse["code"] = 200;
               JsonObject outgoingData = outgoing["data"].createNestedObject();
@@ -596,6 +575,7 @@ class CCPWebsocket {
               senderSdps.add("");
 
               StaticJsonDocument<4000> outgoing;
+              outgoing["seq"] = _sequenceNo++;
               JsonObject outgoingResponse = outgoing.createNestedObject("response");
               outgoingResponse["code"] = 200;
               JsonObject outgoingData = outgoing["data"].createNestedObject();
