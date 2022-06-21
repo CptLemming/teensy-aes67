@@ -214,6 +214,7 @@ void setup() {
     trellis.registerCallback(i, onButtonAction);
     trellis.pixels.setPixelColor(i, 0);
   }
+  trellis.pixels.show();
 
   // [DEBUG] Setup serial plotter
   plotter.activate(true);
